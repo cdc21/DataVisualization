@@ -1,0 +1,185 @@
+---
+title: "Final_Project_ECON256"
+author: "Christian Dela Cruz"
+date: "2023-04-20"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r }
+knitr::opts_chunk$set(echo = TRUE)
+
+#Setting Working Directory
+knitr::opts_knit$set(root.dir = "~/Desktop/Final Project/")
+getwd()
+```
+
+#Install and Intialize Packages
+```{r }
+library(tidyverse)
+library(dplyr)
+library(ggthemes)
+library(gifski)
+library(gganimate)
+library(png)
+library(extrafont)
+library(scales)
+library(RColorBrewer)
+library(tidyquant)
+library(vars)
+library(sarima)
+library(lmtest)
+```
+
+#Read CSV
+```{r }
+setwd("~/Downloads/Final Project/")
+NYC <-read.csv("NYC_Property_Sales_Data.csv")
+NYC
+```
+
+#Summary
+```{r }
+summary(NYC)
+```
+
+#Cleaning
+```{r }
+NYC <- NYC %>% 
+  mutate(SALE.PRICE=as.numeric(SALE.PRICE))
+NYC <- NYC%>%
+    mutate(SALE.DATE=as.Date(SALE.DATE),'%m/%d/%Y')
+NYC<- NYC %>%
+  dplyr::select("BOROUGH","SALE.PRICE","SALE.DATE")
+NYC<- NYC %>% 
+  drop_na()
+filter(NYC, SALE.PRICE > 0)
+NYC$BOROUGH = case_when(
+  NYC$BOROUGH  == "1" ~ "Manhatten",
+  NYC$BOROUGH  == "2" ~ "Bronx",
+  NYC$BOROUGH  == "3" ~ "Brooklyn",
+  NYC$BOROUGH  == "4" ~ "Queens",
+  NYC$BOROUGH  == "5" ~ "Staten Island",
+)
+NYC <- NYC %>% 
+    group_by(month = lubridate::floor_date(SALE.DATE, 'month'), BOROUGH) %>%
+    summarize(
+      average_price = mean(SALE.PRICE))
+NYC <- NYC %>% 
+       rename("borough" = "BOROUGH")
+NYC
+summary(NYC)
+```
+
+#Simple Plot
+```{r}
+ggplot(NYC, aes(x=month, y=average_price, color=borough))+
+  scale_y_continuous( breaks = seq(from = 0,to = 5000000, by = 500000), labels =label_dollar()) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_x_date(date_labels="%b %Y",date_breaks  = "1 month")+
+  geom_line()+
+  labs(title="NYC Average Property Sale Price")
+```
+
+#FacetWrap For Each Borough
+```{r}
+ggplot(NYC, aes(x=month, y=average_price, color=borough))+
+  scale_y_continuous( breaks = seq(from = 0,to = 5000000, by = 500000), labels = label_dollar()) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_x_date(date_labels="%b %Y",date_breaks  = "1 month")+
+  geom_line()+
+  labs(title="NYC Average Property Sale Price")+
+  facet_wrap(~borough)
+```
+
+
+#Plotting Graph + Animation
+```{r }
+video = NYC %>% 
+  ggplot(aes(x=month, y=average_price, color=borough)) +
+  geom_line(linewidth=2, alpha=0.75) + #thick lines
+  theme_solarized_2(light=FALSE) + # Change style of lighting
+  labs(title= "NYC Real Estate Sales 2016-2017",
+       y="Sale Price ($ USD)") +
+  theme(text=element_text(family="Courier", colour="#EEEEEE"),
+        title=element_text(color= "#EEEEEE"),
+        axis.title.x = element_blank(), # getting rid of x axis label
+        panel.background=element_rect(fill=NA), # getting rid of grid lines
+        plot.background=element_rect(fill="#111111"), # replace grid lines with darker tones
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(), #eliminating grid lines again
+        legend.background=element_blank(), # getting rid of legend background
+        legend.key=element_blank(), # getting rid of legend key
+        legend.position = "bottom", # moving legend to bottom
+        plot.title= element_text(hjust=0.5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_colour_brewer(palette = "BuGn") +
+  geom_point()+  # set points on lines
+  scale_x_date(date_labels="%b '%y",date_breaks  = "1 month")+
+  scale_y_continuous( breaks = seq(from = 0,to = 5000000, by = 500000), labels =label_dollar()) 
+
+video
+```
+#Animate
+```{r}
+video.animation = video +
+  transition_reveal(month) +
+  view_follow(fixed_y=TRUE) #set y axis as fixed by move x axis
+animate(video.animation,height=500, width=800,fps=30,duration=10,end=60,res=100)
+```
+
+#TimeSeries - Cleaning Data 
+```{r}
+setwd("~/Downloads/Final Project/")
+NYC <-read.csv("NYC_Property_Sales_Data.csv")
+NYC <- NYC %>% 
+  mutate(SALE.PRICE=as.numeric(SALE.PRICE))
+NYC <- NYC%>%
+    mutate(SALE.DATE=as.Date(SALE.DATE),'%m/%d/%Y')
+NYC<- NYC %>%
+  dplyr::select("BOROUGH","SALE.PRICE","SALE.DATE")
+NYC<- NYC %>% 
+  drop_na()
+filter(NYC, SALE.PRICE > 0)
+NYC <- NYC %>% 
+    group_by(month = lubridate::floor_date(SALE.DATE, 'month'), BOROUGH) %>%
+    summarize(
+      average_price = mean(SALE.PRICE))
+NYC = subset(NYC, NYC$BOROUGH < 2)
+summary(NYC)
+```
+#Creating 2 Different Data Frames
+```{r}
+train <- NYC%>% filter(month < "2017-03-01")
+hold_out <- NYC%>% filter(month >= "2017-03-01")
+```
+
+#Graphing Data Frame Before Prediction
+```{r}
+ggplot(train) +
+  geom_line(aes(month, average_price)) +
+  labs(title = "Average Real Estate Price in Manhatten")
+```
+#ARIMA Modeling
+```{r}
+arima_model <- arima(train$average_price, c(2, 1, 0), method = "ML")
+arima_model
+coeftest(arima_model)
+```
+#AR Performance
+```{r}
+arima_prediction <- predict(arima_model, n.ahead = 12)
+arima_prediction
+```
+#Plotting our ARIMA Prediction
+```{r}
+ggplot(cbind(hold_out[1:12,c("month", "average_price")], as.data.frame(arima_prediction)), aes(x = month)) +
+  geom_ribbon(aes(ymin = pred - se, ymax = pred + se), alpha = 0.25, fill = scales::muted("green")) +
+  geom_line(aes(y = pred), lty = 2) +
+  geom_line(aes(y = average_price)) +
+  scale_y_continuous(breaks = seq(from = 0,to = 5000000, by = 500000), labels =label_dollar()) +
+  labs(title = "ARIMA prediction of Average Real Estate Price in Manhatten", subtitle = "Actual = solid, prediciton = dashed, se = green")
+```
+
+
